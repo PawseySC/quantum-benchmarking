@@ -2,9 +2,7 @@
 """
 Created on Wed Jan 22 10:39 2025
 
-Class to create a data re-uploader QNN
-
-Based upon qnn/DenseQNN.py and tutorials/data_reuploader_tutorial.ipynb
+Class for implementing a Data Re-Uploader QNN
 
 @author: james
 """
@@ -15,21 +13,37 @@ import mpi4jax
 import pennylane as qml
 import optax
 
-from QNN import QNN
+from qnnax.QNN import QNN
 
 
 class ReuploaderQNN(QNN):
+    """
+    Class for implementing a Data Re-Uploader QNN.
+    """
     def __init__(self,
                  dev_type="default.qubit",
                  random_state=37,
                  num_layers=3,
-                 num_qubits=1,
+                 num_qubits=2,
                  num_features=2,  # num features of X
-                 batch_size=8,
-                 epochs=20,
-                 learning_rate=0.01,
+                 batch_size=128,
+                 epochs=50,
+                 learning_rate=0.1,
                  optimizer=optax.adam,
                  comm=None):
+        """
+        Initialise the ReuploaderQNN model.
+        :param str dev_type: PennyLane device type (eg "default.qubit")
+        :param int random_state: Seed for random number generators
+        :param int num_layers: Number of re-uploader layers
+        :param int num_qubits: Number of duplicate qubit lines (linked with CNOT gates)
+        :param int num_features: Number of X features. Must remain constant
+        :param int batch_size: Number of samples per gradient update and size of the problem distributed between processes
+        :param int epochs: Number of training epochs
+        :param float learning_rate: Optimizer learning rate
+        :param optimizer: Optimizer class to use
+        :param MPI.COMM_WORLD or None comm: If using MPI this should be MPI.COMM_WORLD otherwise None
+        """
         # Make sure that all variables are explicitly set here
         super().__init__(dev_type, random_state, batch_size, epochs, learning_rate, optimizer, comm, root_proc=0)
         self.num_layers = num_layers
@@ -39,7 +53,7 @@ class ReuploaderQNN(QNN):
 
     def initialise(self):
         """
-        Initialise the weights and bias with random values
+        Initialise the weights and bias with random values.
         """
         if self.use_mpi:
             if self.is_root_proc:
@@ -60,7 +74,7 @@ class ReuploaderQNN(QNN):
 
     def create_circuit(self):
         """
-        Create the Pennylane variational circuit
+        Create the Pennylane variational circuit.
         :return: vmap version of the jitted circuit
         """
         dev = qml.device(self.dev_type, wires=self.num_qubits)
@@ -88,12 +102,13 @@ class ReuploaderQNN(QNN):
         self.forward = jax.vmap(jax.jit(forward_fn), in_axes=(None, 0))
         return self.forward
 
-    def transform(self, X):
+    def transform(self, X: jax.Array) -> jax.Array:
         """
-        Transform the input to valid 3D
-        :param X:  Data of shape (n_samples, <=3)
-        :return:  Data of shape (n_samples, 3)
+        Transform the input data to valid dimension ranges for the QNN.
+        :param jax.Array X:  Input data of shape (n_samples, n_features)
+        :return: Output data of shape (n_samples, real_num_features) where real_num_features is n_features rounded up to the nearest multiple of 3
+        :rtype: jax.Array (n_samples, n_model_features)
         """
         missing_dims = self.real_num_features - X.shape[1]
-        padding = jnp.zeros((X.shape[0], missing_dims))
+        padding = jnp.zeros((X.shape[0], missing_dims), dtype=jnp.float32)
         return jnp.hstack([X, padding])

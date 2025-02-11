@@ -2,11 +2,7 @@
 """
 Created on Mon Jan 20 14:36 2025
 
-Class to create and train a Dense (Vanilla) Quantum Neural Network (QNN)
-
-Based upon notebook tutorials/variational_classifier.ipynb and qnn/tutorial/models/vanilla_qnn.py
-
-Note that this is written to be run on a GPU. Jax is used by default and everything is jitted
+Class to create a Dense Quantum Neural Network (QNN)
 
 @author: james
 """
@@ -17,11 +13,14 @@ import mpi4jax
 import pennylane as qml
 import optax
 
-from QNN import QNN
-from datasets import rescale
+from qnnax.QNN import QNN
+from qnnax.datasets import rescale
 
 
 class DenseQNN(QNN):
+    """
+    Class to create a Dense QNN.
+    """
     def __init__(self,
                  dev_type="default.qubit",
                  random_state=37,
@@ -32,6 +31,18 @@ class DenseQNN(QNN):
                  learning_rate=0.01,
                  optimizer=optax.adam,
                  comm=None):
+        """
+        Initialise the DenseQNN model.
+        :param str dev_type: PennyLane device type (eg "default.qubit")
+        :param int random_state: Seed for random number generators
+        :param int num_qubits: Number of qubit lines (Data is extended to fill the full Hilbert space so can support 2^(num_qubits) X features)
+        :param int num_layers: Number of weighted layers
+        :param int batch_size: Number of samples per gradient update and size of the problem distributed between processes
+        :param int epochs: Number of training epochs
+        :param float learning_rate: Optimizer learning rate
+        :param optimizer: Optimizer class to use
+        :param MPI.COMM_WORLD or None comm: If using MPI this should be MPI.COMM_WORLD otherwise None
+        """
         # Make sure that all variables are explicitly set here
         super().__init__(dev_type, random_state, batch_size, epochs, learning_rate, optimizer, comm, root_proc=0)
         self.num_qubits = num_qubits
@@ -40,7 +51,7 @@ class DenseQNN(QNN):
 
     def initialise(self):
         """
-        Initialise the weights and bias with random values
+        Initialise the weights and bias with random values.
         """
         if self.use_mpi:
             if self.is_root_proc:
@@ -61,7 +72,7 @@ class DenseQNN(QNN):
 
     def create_circuit(self):
         """
-        Create the Pennylane variational circuit
+        Create the Pennylane variational circuit.
         :return: vmap version of the jitted circuit
         """
 
@@ -91,21 +102,21 @@ class DenseQNN(QNN):
         self.forward = jax.vmap(jax.jit(forward_fn), in_axes=(None, 0))
         return self.forward
 
-    def transform(self, X):
+    def transform(self, X: jax.Array) -> jax.Array:
         """
-        Transform the input to valid 4D
-        :param X:  Data of shape (n_samples, 2)
-        :return:  Data of shape (n_samples, 4)
+        Transform the input data to valid ranges for the QNN both in terms of values and dimensions.
+        :param jax.Array X:  Input data of shape (n_samples, n_features)
+        :return: Output data of shape (n_samples, real_num_features) where real_num_features is 2**num_qubits and normalised
+        :rtype: jax.Array (n_samples, n_model_features)
         """
         # Cap to range [0, 1]
         X = rescale(X, min=0, max=1)
         
         missing_dims = self.num_features - X.shape[1]
-        padding = 0.1 * jnp.ones((X.shape[0], missing_dims))
+        padding = 0.1 * jnp.ones((X.shape[0], missing_dims), dtype=jnp.float32)
         nX = jnp.hstack([X, padding])
 
         # Normalise each input
         normal = jnp.sqrt(jnp.sum(nX**2, -1))
         X = (nX.T / normal).T
-        
         return X

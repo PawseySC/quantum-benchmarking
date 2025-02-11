@@ -2,25 +2,24 @@
 """
 Created on Tue Jan 28 15:06 2025
 
-Just run the given model and return how long it takes
+Demonstration code for running the QNN either single threaded or using MPI.
 
 @author: james
 """
 
 
+import jax
 import jax.numpy as jnp
+jax.config.update("jax_platform_name", "cpu")
 
 from mpi4py import MPI
 import mpi4jax
 from timeit import default_timer as timer
 from sklearn.model_selection import train_test_split
 import optax
-from math import log2, ceil
+import time
 
-from DenseQNN import DenseQNN
-from ReuploaderQNN import ReuploaderQNN
-from datasets import create_classification, create_blobs, create_moons, create_circles
-
+import qnnax
 
 COMM = MPI.COMM_WORLD
 size = COMM.Get_size()
@@ -29,12 +28,13 @@ rank = COMM.Get_rank()
 
 if __name__ == "__main__":
     seed = 37
-    n = 1000  # num datapoints
-    n_features = 3
-    n_qubits = ceil(log2(n_features)) + 1
+    n = 10**3
 
-    X, y = create_circles(seed, n, num_features=n_features)
-    # X, y = create_classification(seed, n)
+    n_qubits = 5 # 11 use more qubits to make the problem harder
+    n_features = 2**(n_qubits-1)
+
+    X, y = qnnax.create_circles(seed, n, num_features=n_features)
+
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=seed)
 
     if size > 1:  # only use MPI if we actually have it available
@@ -44,33 +44,34 @@ if __name__ == "__main__":
 
     mpi4jax.barrier()
 
-    qnn = DenseQNN(
+    # Choose the model to use
+    #qnn = qnnax.DenseQNN(
+    qnn = qnnax.ReuploaderQNN(
         dev_type="default.qubit",
         num_layers=6,
-        batch_size=64,
+        batch_size=10,
         learning_rate=0.1,
         optimizer=optax.adam,
         num_qubits=n_qubits,
-        epochs=30,
+        num_features=n_features,  # only for reuploader
+        epochs=10,
         comm=comm,
     )
 
     # Train the model
-    tic = timer()
     qnn.fit(X_train, y_train, silence=False)
-    toc = timer()
-    train_time = toc - tic
-
     mpi4jax.barrier()
 
     # Ok, now time how long the forward pass takes
     times = []
-    for _ in range(10):  # average
+    for _ in range(5):  # average
         tic = timer()
         qnn.predict(X_train)
         toc = timer()
 
         times.append(toc - tic)
+
+        time.sleep(1)
         mpi4jax.barrier()
 
     times = jnp.array(times[1:])  # ignore first time as jiting the circuit
@@ -82,5 +83,4 @@ if __name__ == "__main__":
 
     if rank == 0:
         print(size, jnp.mean(times), jnp.median(times), jnp.std(times), val, train)
-
 

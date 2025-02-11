@@ -1,0 +1,7 @@
+[project]
+name = "qnnax"
+authors = [
+    {name = "James Zingel", email="j.zingel@unsw.edu.au"}
+]
+description = "MPI enabled Jax based Pennylane simulation for quantum neural networks for machine learning"
+readme = "README.md"
