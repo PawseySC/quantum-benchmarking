@@ -1,4 +1,4 @@
-# Quax (*Q-nix*)
+# QNNAX (*Q-nix*)
 > MPI enabled quantum machine learning for PennyLane and Jax
 
 Over 10x speedup for Quantum Machine Learning Algorithms!
